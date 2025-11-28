@@ -1,3 +1,0 @@
-Code to run the script:
-
-C:/Users/beboo/AppData/Local/Programs/Python/Python310/python.exe C:\Users\beboo\OneDrive\Desktop\JS\js.py -i "C:\Users\beboo\OneDrive\Desktop\JS\app.txt" -o "C:\Users\beboo\OneDrive\Desktop\JS\report.txt"
