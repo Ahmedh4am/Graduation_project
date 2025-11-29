@@ -1,0 +1,8 @@
+dnspython
+requests
+tqdm
+rich
+pyyaml
+aiohttp
+aiodns
+bs4

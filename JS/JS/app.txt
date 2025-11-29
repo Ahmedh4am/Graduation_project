@@ -1,3 +1,3 @@
-"C:\Users\beboo\OneDrive\Desktop\JS\example.js"
-"C:\Users\beboo\OneDrive\Desktop\JS\example2.js"
-"C:\Users\beboo\OneDrive\Desktop\JS\example3.js"
+".\example.js"
+".\example2.js"
+".\example3.js"
