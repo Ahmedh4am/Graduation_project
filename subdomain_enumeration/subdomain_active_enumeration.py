@@ -11,7 +11,7 @@ def check_subdomain(subdomain):
     except:
         return False
 
-wordlist_file = "Word_lists/mini.txt"
+wordlist_file = "Word_lists/active_subdomian_enumeration_word_list.txt"
 
 
 """
@@ -45,46 +45,39 @@ def enumerate_subdomains(domain):
     return active_subdomains
 """
 
-
-def enumerate_subdomains(domain):
-    print("[+] Active subdomain Enum ")
+def enumerate_subdomains(domain, limit):
     active_subdomains = []
 
+    # Read full wordlist
     with open(wordlist_file, "r", encoding="utf-8") as current_file:
         content = current_file.read()
-        words = content.split()  #Array of extracted words
+        words = content.split()
 
-    total_domains = len(words)
-    domains_tried = 0
+    # Apply limit filter
+    words = words[:limit]
 
-    print(f"\t- Enumerating subdomains for: {domain}")
-    print(f"\t- Total subdomains to try: {total_domains}")
+    print(f"[+] Enumerating subdomains for: {domain}")
+    print(f"[+] Using {len(words)} entries from the wordlist...\n")
 
+    # Check each subdomain
     for word in words:
-        subdomain_name = f"{word}.{domain}"#this appends the word from the wordlist(words array) to the input domian name.
-        domains_tried += 1
-
-        # Display progress every 10 domains or on the last one
-        if domains_tried % 10 == 0 or domains_tried == total_domains:
-            print(f"\t[Progress] DONE {domains_tried}/{total_domains} domains ({domains_tried/total_domains*100:.1f}%)")
-
+        subdomain_name = f"{word}.{domain}"
         if check_subdomain(subdomain_name):
-            # print(f"[ACTIVE] {subdomain_name}")
             active_subdomains.append(subdomain_name)
-        #If the Check_subdomains returned true it will append this subdomain to the result
 
+    # Prepare results directory
     base_dir = "Results"
     domain_dir = os.path.join(base_dir, f"{domain}_results")
     os.makedirs(domain_dir, exist_ok=True)
+
     output_file = os.path.join(domain_dir, f"{domain}_Active_Enum_subdomains.txt")
 
+    # Save active subdomains
     with open(output_file, "w") as f:
         for sub in active_subdomains:
             f.write(sub + "\n")
 
-    print(f"\t- Found {len(active_subdomains)} subdomains")
     return active_subdomains
-
 
 def subdomain_printer(domain):
     print("Found Subdomians:\n----------------------------------")

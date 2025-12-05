@@ -23,25 +23,53 @@ def print_step(step_number, description):
 
 def main():
     print_banner()
-
+    wordlist_file = "Word_lists/active_subdomian_enumeration_word_list.txt"
     domain = input("\nEnter domain to scan: ").strip()
     print(f"Results will be saved in: Results/{domain}_results/")
 
     # =========================================================================
     # STEP 1: Subdomain Enumeration
     # =========================================================================
-    print_section("PHASE 1: SUBDOMAIN ENUMERATION")
 
+    print_section("PHASE 1: SUBDOMAIN ENUMERATION")
     print_step(1, "Enumerating subdomains")
     print("Scanning for subdomains...")
 
-    activeEnum_subdomains = enumerate_subdomains(domain)
+    # Read the wordlist once
+    with open(wordlist_file, "r", encoding="utf-8") as current_file:
+        content = current_file.read()
+        words = content.split()  # Array of extracted words
 
+    total_words = len(words)
+    print(f"[+] Wordlist contains {total_words} entries.")
+
+    # Ask how many entries to use
+    try:
+        word_list_filter = int(input("Select the number of entries: "))
+    except ValueError:
+        word_list_filter = 10
+        print("[!] Invalid input, using default value: 10")
+
+    # Validate entered number
+    if word_list_filter > total_words:
+        word_list_filter = total_words
+    elif word_list_filter <= 0:
+        word_list_filter = 10  # fallback
+
+
+    # Run the enumeration with the filter
+    activeEnum_subdomains = enumerate_subdomains(domain, word_list_filter)
+
+    # Print results
     if len(activeEnum_subdomains) > 0:
         print(f"SUCCESS: Found {len(activeEnum_subdomains)} subdomains")
     else:
         print("ERROR: No subdomains found")
         return
+
+    # Optional: Print subdomains
+    subdomain_printer(domain)
+
 
     # =========================================================================
     # STEP 2: Subdomain Probing
