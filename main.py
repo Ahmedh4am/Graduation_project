@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from subdomain_enumeration.subdomain_active_enumeration import enumerate_subdomains, subdomain_printer
+from subdomain_enumeration.subdomain_passive_enumeration import passive_enumerate_subdomains
 from Proping.prope import probe_subdomains_from_file
 from Proping.filter_probe import filter_probe_results_sync
 from Crawler.async_crawler import run_crawler
+import os
 
 def print_banner():
     """Print a formatted banner for better visual appearance"""
@@ -33,42 +35,86 @@ def main():
 
     print_section("PHASE 1: SUBDOMAIN ENUMERATION")
     print_step(1, "Enumerating subdomains")
-    print("Scanning for subdomains...")
 
-    # Read the wordlist once
-    with open(wordlist_file, "r", encoding="utf-8") as current_file:
-        content = current_file.read()
-        words = content.split()  # Array of extracted words
-
-    total_words = len(words)
-    print(f"[+] Wordlist contains {total_words} entries.")
-
-    # Ask how many entries to use
+    print("Choose enumeration method:")
+    print("  1) Active (wordlist brute-force)")
+    print("  2) Passive (crt.sh, Wayback, etc.)")
+    print("  3) Both (passive first → active)")
     try:
-        word_list_filter = int(input("Select the number of entries: "))
+        method = int(input("Enter choice (1, 2, or 3): "))
     except ValueError:
-        word_list_filter = 10
-        print("[!] Invalid input, using default value: 10")
+        method = 1
 
-    # Validate entered number
-    if word_list_filter > total_words:
-        word_list_filter = total_words
-    elif word_list_filter <= 0:
-        word_list_filter = 10  # fallback
+    print("\n[+] Selected mode:", 
+        "Active" if method == 1 else 
+        "Passive" if method == 2 else 
+        "Both")
 
+    # -----------------------------
+    # Wordlist loading (only needed for active or both)
+    # -----------------------------
+    if method in (1, 3):
+        with open(wordlist_file, "r", encoding="utf-8") as current_file:
+            content = current_file.read()
+            words = content.split()
 
-    # Run the enumeration with the filter
-    activeEnum_subdomains = enumerate_subdomains(domain, word_list_filter)
+        total_words = len(words)
+        print(f"[+] Wordlist contains {total_words} entries.")
 
-    # Print results
-    if len(activeEnum_subdomains) > 0:
-        print(f"SUCCESS: Found {len(activeEnum_subdomains)} subdomains")
-    else:
-        print("ERROR: No subdomains found")
-        return
+        try:
+            word_list_filter = int(input("Select the number of entries: "))
+        except ValueError:
+            word_list_filter = 10
+            print("[!] Invalid input, using default value: 10")
 
-    # Optional: Print subdomains
-    subdomain_printer(domain)
+        if word_list_filter > total_words:
+            word_list_filter = total_words
+        elif word_list_filter <= 0:
+            word_list_filter = 10
+
+    # -----------------------------
+    # RUN PASSIVE ENUM (if chosen)
+    # -----------------------------
+    all_subdomains = set()
+
+    if method in (2, 3):
+        print("\n[*] Running PASSIVE enumeration...")
+        passive_subs = passive_enumerate_subdomains(domain)
+        all_subdomains.update(passive_subs)
+        print(f"[+] Passive found: {len(passive_subs)} subdomains")
+
+    # -----------------------------
+    # RUN ACTIVE ENUM (if chosen)
+    # -----------------------------
+    if method in (1, 3):
+        print("\n[*] Running ACTIVE enumeration...")
+        active_subs = enumerate_subdomains(domain, word_list_filter)
+        all_subdomains.update(active_subs)
+        print(f"[+] Active found: {len(active_subs)} subdomains")
+
+    # -----------------------------
+    # FINAL MERGED RESULTS
+    # -----------------------------
+    print("\n[+] FINAL MERGED RESULTS")
+    print(f"[+] Total unique subdomains: {len(all_subdomains)}")
+
+    # Save merged results to the SAME file ALWAYS
+    results_dir = f"Results/{domain}_results"
+    os.makedirs(results_dir, exist_ok=True)
+
+    enum_file_path = os.path.join(results_dir, f"{domain}_Enum_subdomains.txt")
+
+    with open(enum_file_path, "w") as f:
+        for sub in sorted(all_subdomains):
+            f.write(sub + "\n")
+
+    print(f"[+] Saved results to: {enum_file_path}")
+
+    # Print them
+    print("\nFound Subdomains:\n---------------------------")
+    for s in sorted(all_subdomains):
+        print(s)
+
 
 
     # =========================================================================
@@ -79,13 +125,13 @@ def main():
     print_step(2, "Probing subdomains for HTTP responses")
 
     # Build the path to the Active Enumeration file that was just created
-    active_enum_file_path = f"Results/{domain}_results/{domain}_Active_Enum_subdomains.txt"
+    enum_file_path = f"Results/{domain}_results/{domain}_Enum_subdomains.txt"
     # active_enum_file_path = f"Results/tests/probe_test.txt"  # TEST PATH
 
-    print(f"Reading subdomains from: {active_enum_file_path}")
+    print(f"Reading subdomains from: {enum_file_path}")
     print("Probing subdomains (HTTP/HTTPS)...")
 
-    probe_results = probe_subdomains_from_file(active_enum_file_path, domain)
+    probe_results = probe_subdomains_from_file(enum_file_path, domain)
 
     if probe_results:
         print(f"SUCCESS: Successfully probed {len(probe_results)} responsive subdomains")
