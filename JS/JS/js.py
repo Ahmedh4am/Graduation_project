@@ -527,6 +527,3 @@ def main():
     analyzer.save_report(args.input, args.output)
     print(f"[+] Report saved to: {args.output}")
 
-
-if __name__ == "__main__":
-    main()

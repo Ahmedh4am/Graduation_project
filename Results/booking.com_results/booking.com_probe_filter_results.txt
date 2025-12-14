@@ -1,0 +1,12 @@
+https://Auth.booking.com
+https://account.booking.com
+https://admin.booking.com
+https://business.booking.com
+https://compliance.booking.com
+https://jamf-api.booking.com
+https://okta.booking.com
+https://panic.booking.com
+https://passport.booking.com
+https://product.booking.com
+https://secure.booking.com
+https://visitors.booking.com

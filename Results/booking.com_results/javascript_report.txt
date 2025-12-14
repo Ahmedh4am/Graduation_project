@@ -1,0 +1,14 @@
+Local JavaScript / Endpoint Analysis Report
+Source file: Crawler JS Files
+Date      : 2025-12-14 11:58:12
+======================================================================
+
+SUMMARY
+-------
+Critical secrets   : 0
+HTTP requests      : 0
+Critical endpoints : 0
+Total findings     : 0
+
+======================================================================
+End of report

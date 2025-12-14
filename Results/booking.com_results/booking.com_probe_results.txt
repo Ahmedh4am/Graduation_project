@@ -1,0 +1,20 @@
+subdomain, status, title, server
+Auth.booking.com, 202, , nginx
+account.booking.com, 200, Booking.com, envoy
+admin.booking.com, 200, Booking.com, envoy
+agencywise.booking.com, 403, Just a moment..., cloudflare
+bookingmecm.itspublic.booking.com, 500, , Microsoft-IIS/10.0
+business.booking.com, 200, Free business travel management platform | Booking.com for Business, nginx/1.28.0
+compliance.booking.com, 200, Login - Employee Service Center, snow_adc
+globalguru.booking.com, 403, Just a moment..., cloudflare
+go.partners.booking.com, 404, 404 - Page not found, cloudflare
+help.business.booking.com, 403, Just a moment..., cloudflare
+jamf-api.booking.com, 200, Jamf Pro, Jamf
+noramchains.booking.com, 403, Just a moment..., cloudflare
+okta.booking.com, 200, , nginx
+panic.booking.com, 200, Booking.com - Sign In, nginx
+passport.booking.com, 200, Booking Holdings - Sign In, nginx
+product.booking.com, 200, Booking.com - Sign In, nginx
+secure-iphone-xml.booking.com, 401, , nginx
+secure.booking.com, 202, , nginx
+visitors.booking.com, 200, StudentPortal, timedatasecurity.com

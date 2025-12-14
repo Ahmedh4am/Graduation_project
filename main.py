@@ -4,6 +4,7 @@ from subdomain_enumeration.subdomain_passive_enumeration import passive_enumerat
 from Proping.prope import probe_subdomains_from_file
 from Proping.filter_probe import filter_probe_results_sync
 from Crawler.async_crawler import run_crawler
+from JS.JS.js import JSLocalAnalyzer
 import os
 
 def print_banner():
@@ -191,6 +192,46 @@ def main():
         output_prefix=crawl_output_dir
     )
 
+    # ============================================
+    # PHASE 5 — JavaScript / Endpoint Analysis
+    # ============================================
+    print("\n===== PHASE 5: JavaScript / Endpoint Analysis =====")
+
+    js_file_list = os.path.join(results_dir, "crawl_results", "js_files.txt")
+
+
+    # If the crawler did not find JS files
+    if not os.path.isfile(js_file_list):
+        print("No js_files.txt found — skipping JS analysis.")
+    else:
+        with open(js_file_list, "r", encoding="utf-8") as f:
+            js_paths = [line.strip() for line in f if line.strip()]
+
+        if not js_paths:
+            print("No JS paths found in js_files.txt — skipping.")
+        else:
+            analyzer = JSLocalAnalyzer()
+
+            for js_file in js_paths:
+                # Process ONLY local JS files downloaded by the crawler
+                if js_file.startswith("http"):
+                    continue  # skip URLs, your analyzer does not download remote files
+
+                if not os.path.isfile(js_file):
+                    print(f"[!] Skipping missing file: {js_file}")
+                    continue
+
+                print(f"[+] Analyzing JS file: {js_file}")
+
+                analyzer.analyze_local_file(js_file)
+
+            # Save consolidated JS report
+            output_report = os.path.join(results_dir, "javascript_report.txt")
+            analyzer.print_summary_console("Crawler JS Files")
+            analyzer.save_report("Crawler JS Files", output_report)
+
+            print(f"[+] JavaScript analysis report saved to: {output_report}")
+
     # =========================================================================
     # FINAL SUMMARY
     # =========================================================================
@@ -198,7 +239,7 @@ def main():
 
     print("All phases completed successfully!")
     print("\nFINAL RESULTS:")
-    print(f"  - Subdomains enumerated: {len(activeEnum_subdomains)}")
+    print(f"  - Subdomains enumerated: {len(all_subdomains)}")
     print(f"  - Responsive subdomains: {len(probe_results)}")
     print(f"  - Filtered URLs (20*): {len(filtered_urls)}")
 
@@ -208,14 +249,15 @@ def main():
         print(f"  - Files found: {len(crawl_results.discovered_files)}")
         print(f"  - Errors encountered: {len(crawl_results.errors)}")
 
-    print(f"\nAll results saved in: Results/{domain}_results/")
+    print(f"\nAll results saved in: {results_dir}")
     print("\nOUTPUT FILES:")
-    print(f"  - Enumeration: {domain}_Active_Enum_subdomains.txt")
+    print(f"  - Enumeration: {domain}_Enum_subdomains.txt")
     print(f"  - Probing: {domain}_probe_results.txt")
     print(f"  - Filtered: {domain}_probe_filter_results.txt")
     print(f"  - Crawling: crawl_results/ directory")
 
     print(f"\nScan completed for: {domain}")
+
 
 if __name__ == "__main__":
     main()
