@@ -5,4 +5,7 @@ rich
 pyyaml
 aiohttp
 aiodns
-bs4
+beautifulsoup4
+lxml
+colorama
+urllib3
