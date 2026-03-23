@@ -1,262 +1,195 @@
 #!/usr/bin/env python3
-from subdomain_enumeration.subdomain_active_enumeration import enumerate_subdomains, subdomain_printer
+
+import os
+import sys
+import subprocess
+import time
+import requests
+
+from colorama import Fore, Style, init
+from pyfiglet import Figlet
+
+from subdomain_enumeration.subdomain_active_enumeration import enumerate_subdomains
 from subdomain_enumeration.subdomain_passive_enumeration import passive_enumerate_subdomains
 from Proping.prope import probe_subdomains_from_file
 from Proping.filter_probe import filter_probe_results_sync
 from Crawler.async_crawler import run_crawler
-from JS.JS.js import JSLocalAnalyzer
-import os
 
-def print_banner():
-    """Print a formatted banner for better visual appearance"""
-    print("============================================================")
-    print("               SUBDOMAIN RECONNAISSANCE TOOL               ")
-    print("            Enumeration -> Probing -> Crawling             ")
-    print("============================================================")
+from vuln.xss_scanner import run_xss_scan_single, run_xss_scan_file
 
-def print_section(title):
-    """Print a formatted section header"""
-    print(f"\n{'='*60}")
-    print(f"[ {title} ]")
-    print(f"{'='*60}")
 
-def print_step(step_number, description):
-    """Print a formatted step"""
-    print(f"\n[STEP {step_number}] {description}")
+# ============================================================
+# INIT
+# ============================================================
+
+init(autoreset=True)
+
+CRIMSON = Fore.RED + Style.DIM
+ACCENT = Fore.RED + Style.NORMAL
+RESET = Style.RESET_ALL
+
+
+def cprint(text, accent=False):
+    print((ACCENT if accent else CRIMSON) + text + RESET)
+
+
+# ============================================================
+# NGROK (NEW TERMINAL)
+# ============================================================
+
+def start_ngrok(port=80):
+    cprint("[+] Launching ngrok in new terminal...", True)
+
+    try:
+        if os.name == "nt":
+            subprocess.Popen(["start", "cmd", "/k", f"ngrok http {port}"], shell=True)
+        else:
+            subprocess.Popen(["gnome-terminal", "--", "ngrok", "http", str(port)])
+
+        time.sleep(3)
+
+        data = requests.get("http://127.0.0.1:4040/api/tunnels").json()
+
+        for t in data.get("tunnels", []):
+            return t["public_url"]
+
+    except Exception as e:
+        cprint(f"[!] Ngrok failed: {e}")
+
+    return None
+
+
+# ============================================================
+# UI
+# ============================================================
+
+def banner():
+    f = Figlet(font="slant")
+    print(ACCENT + f.renderText("Crimson"))
+
+
+def section(title):
+    cprint("\n" + "=" * 60)
+    cprint(f"[ {title} ]", True)
+    cprint("=" * 60)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
-    print_banner()
-    wordlist_file = "Word_lists/active_subdomian_enumeration_word_list.txt"
-    domain = input("\nEnter domain to scan: ").strip()
-    print(f"Results will be saved in: Results/{domain}_results/")
+    banner()
 
-    # =========================================================================
-    # STEP 1: Subdomain Enumeration
-    # =========================================================================
+    listener_server = start_ngrok()
 
-    print_section("PHASE 1: SUBDOMAIN ENUMERATION")
-    print_step(1, "Enumerating subdomains")
+    cprint(f"[+] Listener: {listener_server}", True)
 
-    print("Choose enumeration method:")
-    print("  1) Active (wordlist brute-force)")
-    print("  2) Passive (crt.sh, Wayback, etc.)")
-    print("  3) Both (passive first → active)")
+    print("\n1) Full Recon + Scan")
+    print("2) Vulnerability Scan Only")
+    print("3) Scan Single Endpoint")
+
     try:
-        method = int(input("Enter choice (1, 2, or 3): "))
-    except ValueError:
-        method = 1
+        mode = int(input("Choice: "))
+    except:
+        mode = 1
 
-    print("\n[+] Selected mode:", 
-        "Active" if method == 1 else 
-        "Passive" if method == 2 else 
-        "Both")
+    # ============================================================
+    # SINGLE TARGET MODE
+    # ============================================================
 
-    # -----------------------------
-    # Wordlist loading (only needed for active or both)
-    # -----------------------------
-    if method in (1, 3):
-        with open(wordlist_file, "r", encoding="utf-8") as current_file:
-            content = current_file.read()
-            words = content.split()
+    if mode == 3:
 
-        total_words = len(words)
-        print(f"[+] Wordlist contains {total_words} entries.")
+        url = input("\nEnter full URL: ").strip()
 
-        try:
-            word_list_filter = int(input("Select the number of entries: "))
-        except ValueError:
-            word_list_filter = 10
-            print("[!] Invalid input, using default value: 10")
+        section("XSS SCAN")
 
-        if word_list_filter > total_words:
-            word_list_filter = total_words
-        elif word_list_filter <= 0:
-            word_list_filter = 10
+        run_xss_scan_single(url, listener_server)
 
-    # -----------------------------
-    # RUN PASSIVE ENUM (if chosen)
-    # -----------------------------
-    all_subdomains = set()
+        return
 
-    if method in (2, 3):
-        print("\n[*] Running PASSIVE enumeration...")
-        passive_subs = passive_enumerate_subdomains(domain)
-        all_subdomains.update(passive_subs)
-        print(f"[+] Passive found: {len(passive_subs)} subdomains")
+    # ============================================================
+    # NORMAL FLOW
+    # ============================================================
 
-    # -----------------------------
-    # RUN ACTIVE ENUM (if chosen)
-    # -----------------------------
-    if method in (1, 3):
-        print("\n[*] Running ACTIVE enumeration...")
-        active_subs = enumerate_subdomains(domain, word_list_filter)
-        all_subdomains.update(active_subs)
-        print(f"[+] Active found: {len(active_subs)} subdomains")
-
-    # -----------------------------
-    # FINAL MERGED RESULTS
-    # -----------------------------
-    print("\n[+] FINAL MERGED RESULTS")
-    print(f"[+] Total unique subdomains: {len(all_subdomains)}")
-
-    # Save merged results to the SAME file ALWAYS
+    domain = input("\nEnter domain: ").strip()
     results_dir = f"Results/{domain}_results"
     os.makedirs(results_dir, exist_ok=True)
 
-    enum_file_path = os.path.join(results_dir, f"{domain}_Enum_subdomains.txt")
+    filtered_file = f"{results_dir}/{domain}_filtered.txt"
 
-    with open(enum_file_path, "w") as f:
-        for sub in sorted(all_subdomains):
-            f.write(sub + "\n")
+    # ============================================================
+    # RECON
+    # ============================================================
 
-    print(f"[+] Saved results to: {enum_file_path}")
+    if mode == 1:
 
-    # Print them
-    print("\nFound Subdomains:\n---------------------------")
-    for s in sorted(all_subdomains):
-        print(s)
+        section("ENUMERATION")
 
+        subs = set()
+        subs.update(passive_enumerate_subdomains(domain))
+        subs.update(enumerate_subdomains(domain, 100))
 
+        enum_file = f"{results_dir}/{domain}_subs.txt"
 
-    # =========================================================================
-    # STEP 2: Subdomain Probing
-    # =========================================================================
-    print_section("PHASE 2: SUBDOMAIN PROBING")
+        with open(enum_file, "w") as f:
+            for s in subs:
+                f.write(s + "\n")
 
-    print_step(2, "Probing subdomains for HTTP responses")
+        section("PROBING")
 
-    # Build the path to the Active Enumeration file that was just created
-    enum_file_path = f"Results/{domain}_results/{domain}_Enum_subdomains.txt"
-    # active_enum_file_path = f"Results/tests/probe_test.txt"  # TEST PATH
+        probe_subdomains_from_file(enum_file, domain)
 
-    print(f"Reading subdomains from: {enum_file_path}")
-    print("Probing subdomains (HTTP/HTTPS)...")
+        section("FILTERING")
 
-    probe_results = probe_subdomains_from_file(enum_file_path, domain)
+        filter_probe_results_sync(
+            input_file=f"{results_dir}/{domain}_probe_results.txt",
+            status_filter="20*",
+            output_file=filtered_file,
+            follow_redirects_30x=True
+        )
 
-    if probe_results:
-        print(f"SUCCESS: Successfully probed {len(probe_results)} responsive subdomains")
-    else:
-        print("ERROR: No responsive subdomains found")
-        return
+        section("CRAWLING")
 
-    # =========================================================================
-    # STEP 3: Filtering Probe Results
-    # =========================================================================
-    print_section("PHASE 3: FILTERING RESULTS")
+        run_crawler(
+            input_file=filtered_file,
+            domain=domain,
+            output_prefix=f"{results_dir}/crawl"
+        )
 
-    print_step(3, "Filtering responsive subdomains")
+    # ============================================================
+    # VULN SCAN
+    # ============================================================
 
-    probe_results_file = f"Results/{domain}_results/{domain}_probe_results.txt"
-    filtered_results_file = f"Results/{domain}_results/{domain}_probe_filter_results.txt"
+    if mode in (1, 2):
 
-    print(f"Input file: {probe_results_file}")
-    print(f"Output file: {filtered_results_file}")
-    print("Filter: 20* status codes (successful responses)")
-    print("Redirect following: Enabled for 30* status codes")
+        section("VULNERABILITY SCANNING")
 
-    filtered_urls = filter_probe_results_sync(
-        input_file=probe_results_file,
-        status_filter="20*",  # Change to "30*", "40*", etc. as needed
-        output_file=filtered_results_file,
-        follow_redirects_30x=True  # Automatically follow redirects for 30* codes
-    )
+        print("1) XSS Scanner")
 
-    if filtered_urls:
-        print(f"SUCCESS: Filtered to {len(filtered_urls)} URLs with successful responses")
-    else:
-        print("ERROR: No URLs passed the filter")
-        return
+        try:
+            vuln_choice = int(input("Select module: "))
+        except:
+            vuln_choice = 1
 
-    # =========================================================================
-    # STEP 4: Web Crawling
-    # =========================================================================
-    print_section("PHASE 4: WEB CRAWLING")
+        if vuln_choice == 1:
 
-    print_step(4, "Crawling filtered URLs for content discovery")
+            print("\n1) Scan from recon results")
+            print("2) Scan single endpoint")
 
-    # Use the filtered results file as input for crawling
-    crawl_input_file = f"Results/{domain}_results/{domain}_probe_filter_results.txt"
-    # crawl_input_file = f"Results/tests/crawl_test.txt"  # TEST PATH
-    crawl_output_dir = f"Results/{domain}_results/crawl_results"
+            try:
+                sub_choice = int(input("Choice: "))
+            except:
+                sub_choice = 1
 
-    print(f"Crawl input: {crawl_input_file}")
-    print(f"Output directory: {crawl_output_dir}")
-    print("Starting async crawler with real-time streaming...")
-    print("Note: Results are saved immediately as they're discovered")
+            if sub_choice == 1:
+                run_xss_scan_file(filtered_file, listener_server)
+            else:
+                url = input("Enter URL: ")
+                run_xss_scan_single(url, listener_server)
 
-    # Run the crawler
-    crawl_results = run_crawler(
-        input_file=crawl_input_file,
-        domain=domain,
-        output_prefix=crawl_output_dir
-    )
-
-    # ============================================
-    # PHASE 5 — JavaScript / Endpoint Analysis
-    # ============================================
-    print("\n===== PHASE 5: JavaScript / Endpoint Analysis =====")
-
-    js_file_list = os.path.join(results_dir, "crawl_results", "js_files.txt")
-
-
-    # If the crawler did not find JS files
-    if not os.path.isfile(js_file_list):
-        print("No js_files.txt found — skipping JS analysis.")
-    else:
-        with open(js_file_list, "r", encoding="utf-8") as f:
-            js_paths = [line.strip() for line in f if line.strip()]
-
-        if not js_paths:
-            print("No JS paths found in js_files.txt — skipping.")
-        else:
-            analyzer = JSLocalAnalyzer()
-
-            for js_file in js_paths:
-                # Process ONLY local JS files downloaded by the crawler
-                if js_file.startswith("http"):
-                    continue  # skip URLs, your analyzer does not download remote files
-
-                if not os.path.isfile(js_file):
-                    print(f"[!] Skipping missing file: {js_file}")
-                    continue
-
-                print(f"[+] Analyzing JS file: {js_file}")
-
-                analyzer.analyze_local_file(js_file)
-
-            # Save consolidated JS report
-            output_report = os.path.join(results_dir, "javascript_report.txt")
-            analyzer.print_summary_console("Crawler JS Files")
-            analyzer.save_report("Crawler JS Files", output_report)
-
-            print(f"[+] JavaScript analysis report saved to: {output_report}")
-
-    # =========================================================================
-    # FINAL SUMMARY
-    # =========================================================================
-    print_section("SCAN COMPLETE")
-
-    print("All phases completed successfully!")
-    print("\nFINAL RESULTS:")
-    print(f"  - Subdomains enumerated: {len(all_subdomains)}")
-    print(f"  - Responsive subdomains: {len(probe_results)}")
-    print(f"  - Filtered URLs (20*): {len(filtered_urls)}")
-
-    if crawl_results:
-        print(f"  - Pages crawled: {len(crawl_results.visited_pages)}")
-        print(f"  - URLs discovered: {len(crawl_results.discovered_urls)}")
-        print(f"  - Files found: {len(crawl_results.discovered_files)}")
-        print(f"  - Errors encountered: {len(crawl_results.errors)}")
-
-    print(f"\nAll results saved in: {results_dir}")
-    print("\nOUTPUT FILES:")
-    print(f"  - Enumeration: {domain}_Enum_subdomains.txt")
-    print(f"  - Probing: {domain}_probe_results.txt")
-    print(f"  - Filtered: {domain}_probe_filter_results.txt")
-    print(f"  - Crawling: crawl_results/ directory")
-
-    print(f"\nScan completed for: {domain}")
+    section("DONE")
+    cprint(f"Listener: {listener_server}", True)
 
 
 if __name__ == "__main__":
