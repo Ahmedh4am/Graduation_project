@@ -16,6 +16,7 @@ from Crawler.async_crawler import run_crawler
 
 from vuln.xss_scanner import run_xss_scan_single, run_xss_scan_file
 from vuln.ssrf_scanner import run_ssrf_scan_single, run_ssrf_scan_file
+from vuln.cors_scanner import run_cors_scan_file, scan_cors_single
 
 # ============================================================
 # INIT + COLORS
@@ -49,7 +50,7 @@ def section(title):
 
 
 # ============================================================
-# NGROK (SEPARATE TERMINAL)
+# NGROK
 # ============================================================
 
 def start_ngrok(port=80):
@@ -75,9 +76,6 @@ def start_ngrok(port=80):
                 except FileNotFoundError:
                     continue
 
-            if not launched:
-                raise RuntimeError("No supported terminal emulator found")
-
         time.sleep(4)
 
         data = requests.get(
@@ -87,9 +85,7 @@ def start_ngrok(port=80):
 
         for tunnel in data.get("tunnels", []):
             if "public_url" in tunnel:
-                url = tunnel["public_url"]
-                cprint(f"[+] Listener server: {url}", True)
-                return url
+                return tunnel["public_url"]
 
     except Exception as e:
         cprint(f"[!] Ngrok failed: {e}")
@@ -98,18 +94,14 @@ def start_ngrok(port=80):
 
 
 # ============================================================
-# FULL RECON PIPELINE
+# RECON
 # ============================================================
 
 def run_recon(domain, results_dir):
     section("ENUMERATION")
 
     subs = set()
-
-    cprint("[*] Passive enumeration...")
     subs.update(passive_enumerate_subdomains(domain))
-
-    cprint("[*] Active enumeration...")
     subs.update(enumerate_subdomains(domain, 100))
 
     enum_file = f"{results_dir}/{domain}_subs.txt"
@@ -118,14 +110,11 @@ def run_recon(domain, results_dir):
         for s in sorted(subs):
             f.write(s + "\n")
 
-    cprint(f"[+] Found {len(subs)} subdomains", True)
-
     section("PROBING")
 
     probe_results = probe_subdomains_from_file(enum_file, domain)
 
     if not probe_results:
-        cprint("[-] No responsive subdomains")
         return None
 
     section("FILTERING")
@@ -140,7 +129,6 @@ def run_recon(domain, results_dir):
     )
 
     if not filtered:
-        cprint("[-] No valid URLs after filtering")
         return None
 
     section("CRAWLING")
@@ -155,7 +143,7 @@ def run_recon(domain, results_dir):
 
 
 # ============================================================
-# VULNERABILITY MENU
+# VULN MENU
 # ============================================================
 
 def run_vuln_menu(listener_server, filtered_file=None):
@@ -163,6 +151,7 @@ def run_vuln_menu(listener_server, filtered_file=None):
 
     print("1) XSS Scanner")
     print("2) SSRF Scanner")
+    print("3) CORS Scanner")
 
     try:
         vuln_choice = int(input("Select module: "))
@@ -177,24 +166,52 @@ def run_vuln_menu(listener_server, filtered_file=None):
     except:
         sub_choice = 2
 
+    # SINGLE ENDPOINT
     if sub_choice == 2:
         url = input("Enter full URL: ").strip()
 
         if vuln_choice == 1:
             run_xss_scan_single(url, listener_server)
+
         elif vuln_choice == 2:
             run_ssrf_scan_single(url, listener_server)
 
+        elif vuln_choice == 3:
+            findings = scan_cors_single(
+                url,
+                with_credentials=True,
+                listener_domain=listener_server
+            )
+
+            if findings:
+                for f in findings:
+                    cprint(
+                        f"[!] {f['severity']} | {f['type']} | {f['mode']}",
+                        True
+                    )
+                    cprint(f"    {f['details']}")
+            else:
+                cprint("[-] No CORS issues found")
+
         return
 
+    # FILE MODE
     if not filtered_file or not os.path.exists(filtered_file):
-        cprint("[!] Recon results file missing")
+        cprint("[!] Recon results missing")
         return
 
     if vuln_choice == 1:
         run_xss_scan_file(filtered_file, listener_server)
+
     elif vuln_choice == 2:
         run_ssrf_scan_file(filtered_file, listener_server)
+
+    elif vuln_choice == 3:
+        run_cors_scan_file(
+            filtered_file,
+            with_credentials=True,
+            listener_domain=listener_server
+    )
 
 
 # ============================================================
@@ -206,8 +223,7 @@ def main():
 
     listener_server = start_ngrok()
 
-    if not listener_server:
-        cprint("[!] Continuing without listener")
+    cprint(f"[+] Listener: {listener_server}", True)
 
     print("\n1) Full Recon + Vulnerability Scan")
     print("2) Vulnerability Scan Only")
@@ -217,10 +233,6 @@ def main():
         mode = int(input("Choice: "))
     except:
         mode = 1
-
-    # ========================================================
-    # SINGLE ENDPOINT MODE
-    # ========================================================
 
     if mode == 3:
         run_vuln_menu(listener_server)
@@ -233,21 +245,13 @@ def main():
 
     filtered_file = None
 
-    # ========================================================
-    # FULL MODE
-    # ========================================================
-
     if mode == 1:
         filtered_file = run_recon(domain, results_dir)
-
-    # ========================================================
-    # VULN MODE
-    # ========================================================
 
     run_vuln_menu(listener_server, filtered_file)
 
     section("DONE")
-    cprint(f"Results saved in: {results_dir}", True)
+    cprint(f"Results: {results_dir}", True)
     cprint(f"Listener: {listener_server}", True)
 
 
