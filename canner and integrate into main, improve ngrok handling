@@ -1,0 +1,439 @@
+[1mdiff --git a/main.py b/main.py[m
+[1mindex af44742..92fb57c 100644[m
+[1m--- a/main.py[m
+[1m+++ b/main.py[m
+[36m@@ -16,6 +16,7 @@[m [mfrom Crawler.async_crawler import run_crawler[m
+ [m
+ from vuln.xss_scanner import run_xss_scan_single, run_xss_scan_file[m
+ from vuln.ssrf_scanner import run_ssrf_scan_single, run_ssrf_scan_file[m
+[32m+[m[32mfrom vuln.cors_scanner import run_cors_scan_file, scan_cors_single[m
+ [m
+ # ============================================================[m
+ # INIT + COLORS[m
+[36m@@ -49,7 +50,7 @@[m [mdef section(title):[m
+ [m
+ [m
+ # ============================================================[m
+[31m-# NGROK (SEPARATE TERMINAL)[m
+[32m+[m[32m# NGROK[m
+ # ============================================================[m
+ [m
+ def start_ngrok(port=80):[m
+[36m@@ -75,9 +76,6 @@[m [mdef start_ngrok(port=80):[m
+                 except FileNotFoundError:[m
+                     continue[m
+ [m
+[31m-            if not launched:[m
+[31m-                raise RuntimeError("No supported terminal emulator found")[m
+[31m-[m
+         time.sleep(4)[m
+ [m
+         data = requests.get([m
+[36m@@ -87,9 +85,7 @@[m [mdef start_ngrok(port=80):[m
+ [m
+         for tunnel in data.get("tunnels", []):[m
+             if "public_url" in tunnel:[m
+[31m-                url = tunnel["public_url"][m
+[31m-                cprint(f"[+] Listener server: {url}", True)[m
+[31m-                return url[m
+[32m+[m[32m                return tunnel["public_url"][m
+ [m
+     except Exception as e:[m
+         cprint(f"[!] Ngrok failed: {e}")[m
+[36m@@ -98,18 +94,14 @@[m [mdef start_ngrok(port=80):[m
+ [m
+ [m
+ # ============================================================[m
+[31m-# FULL RECON PIPELINE[m
+[32m+[m[32m# RECON[m
+ # ============================================================[m
+ [m
+ def run_recon(domain, results_dir):[m
+     section("ENUMERATION")[m
+ [m
+     subs = set()[m
+[31m-[m
+[31m-    cprint("[*] Passive enumeration...")[m
+     subs.update(passive_enumerate_subdomains(domain))[m
+[31m-[m
+[31m-    cprint("[*] Active enumeration...")[m
+     subs.update(enumerate_subdomains(domain, 100))[m
+ [m
+     enum_file = f"{results_dir}/{domain}_subs.txt"[m
+[36m@@ -118,14 +110,11 @@[m [mdef run_recon(domain, results_dir):[m
+         for s in sorted(subs):[m
+             f.write(s + "\n")[m
+ [m
+[31m-    cprint(f"[+] Found {len(subs)} subdomains", True)[m
+[31m-[m
+     section("PROBING")[m
+ [m
+     probe_results = probe_subdomains_from_file(enum_file, domain)[m
+ [m
+     if not probe_results:[m
+[31m-        cprint("[-] No responsive subdomains")[m
+         return None[m
+ [m
+     section("FILTERING")[m
+[36m@@ -140,7 +129,6 @@[m [mdef run_recon(domain, results_dir):[m
+     )[m
+ [m
+     if not filtered:[m
+[31m-        cprint("[-] No valid URLs after filtering")[m
+         return None[m
+ [m
+     section("CRAWLING")[m
+[36m@@ -155,7 +143,7 @@[m [mdef run_recon(domain, results_dir):[m
+ [m
+ [m
+ # ============================================================[m
+[31m-# VULNERABILITY MENU[m
+[32m+[m[32m# VULN MENU[m
+ # ============================================================[m
+ [m
+ def run_vuln_menu(listener_server, filtered_file=None):[m
+[36m@@ -163,6 +151,7 @@[m [mdef run_vuln_menu(listener_server, filtered_file=None):[m
+ [m
+     print("1) XSS Scanner")[m
+     print("2) SSRF Scanner")[m
+[32m+[m[32m    print("3) CORS Scanner")[m
+ [m
+     try:[m
+         vuln_choice = int(input("Select module: "))[m
+[36m@@ -177,25 +166,53 @@[m [mdef run_vuln_menu(listener_server, filtered_file=None):[m
+     except:[m
+         sub_choice = 2[m
+ [m
+[32m+[m[32m    # SINGLE ENDPOINT[m
+     if sub_choice == 2:[m
+         url = input("Enter full URL: ").strip()[m
+ [m
+         if vuln_choice == 1:[m
+             run_xss_scan_single(url, listener_server)[m
+[32m+[m
+         elif vuln_choice == 2:[m
+             run_ssrf_scan_single(url, listener_server)[m
+ [m
+[32m+[m[32m        elif vuln_choice == 3:[m
+[32m+[m[32m            findings = scan_cors_single([m
+[32m+[m[32m                url,[m
+[32m+[m[32m                with_credentials=True,[m
+[32m+[m[32m                listener_domain=listener_server[m
+[32m+[m[32m            )[m
+[32m+[m
+[32m+[m[32m            if findings:[m
+[32m+[m[32m                for f in findings:[m
+[32m+[m[32m                    cprint([m
+[32m+[m[32m                        f"[!] {f['severity']} | {f['type']} | {f['mode']}",[m
+[32m+[m[32m                        True[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                    cprint(f"    {f['details']}")[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                cprint("[-] No CORS issues found")[m
+[32m+[m
+         return[m
+ [m
+[32m+[m[32m    # FILE MODE[m
+     if not filtered_file or not os.path.exists(filtered_file):[m
+[31m-        cprint("[!] Recon results file missing")[m
+[32m+[m[32m        cprint("[!] Recon results missing")[m
+         return[m
+ [m
+     if vuln_choice == 1:[m
+         run_xss_scan_file(filtered_file, listener_server)[m
+[32m+[m
+     elif vuln_choice == 2:[m
+         run_ssrf_scan_file(filtered_file, listener_server)[m
+ [m
+[32m+[m[32m    elif vuln_choice == 3:[m
+[32m+[m[32m        run_cors_scan_file([m
+[32m+[m[32m            filtered_file,[m
+[32m+[m[32m            with_credentials=True,[m
+[32m+[m[32m            listener_domain=listener_server[m
+[32m+[m[32m    )[m
+[32m+[m
+ [m
+ # ============================================================[m
+ # MAIN[m
+[36m@@ -206,8 +223,7 @@[m [mdef main():[m
+ [m
+     listener_server = start_ngrok()[m
+ [m
+[31m-    if not listener_server:[m
+[31m-        cprint("[!] Continuing without listener")[m
+[32m+[m[32m    cprint(f"[+] Listener: {listener_server}", True)[m
+ [m
+     print("\n1) Full Recon + Vulnerability Scan")[m
+     print("2) Vulnerability Scan Only")[m
+[36m@@ -218,10 +234,6 @@[m [mdef main():[m
+     except:[m
+         mode = 1[m
+ [m
+[31m-    # ========================================================[m
+[31m-    # SINGLE ENDPOINT MODE[m
+[31m-    # ========================================================[m
+[31m-[m
+     if mode == 3:[m
+         run_vuln_menu(listener_server)[m
+         return[m
+[36m@@ -233,21 +245,13 @@[m [mdef main():[m
+ [m
+     filtered_file = None[m
+ [m
+[31m-    # ========================================================[m
+[31m-    # FULL MODE[m
+[31m-    # ========================================================[m
+[31m-[m
+     if mode == 1:[m
+         filtered_file = run_recon(domain, results_dir)[m
+ [m
+[31m-    # ========================================================[m
+[31m-    # VULN MODE[m
+[31m-    # ========================================================[m
+[31m-[m
+     run_vuln_menu(listener_server, filtered_file)[m
+ [m
+     section("DONE")[m
+[31m-    cprint(f"Results saved in: {results_dir}", True)[m
+[32m+[m[32m    cprint(f"Results: {results_dir}", True)[m
+     cprint(f"Listener: {listener_server}", True)[m
+ [m
+ [m
+[1mdiff --git a/vuln/__pycache__/cors_scanner.cpython-313.pyc b/vuln/__pycache__/cors_scanner.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..ea75b2d[m
+Binary files /dev/null and b/vuln/__pycache__/cors_scanner.cpython-313.pyc differ
+[1mdiff --git a/vuln/cors_scanner.py b/vuln/cors_scanner.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..1253d30[m
+[1m--- /dev/null[m
+[1m+++ b/vuln/cors_scanner.py[m
+[36m@@ -0,0 +1,227 @@[m
+[32m+[m[32mimport requests[m
+[32m+[m[32mfrom urllib.parse import urlparse[m
+[32m+[m
+[32m+[m[32mDEFAULT_TIMEOUT = 6[m
+[32m+[m
+[32m+[m[32mEXTENSIONS_TO_SKIP = [[m
+[32m+[m[32m    ".jpg", ".jpeg", ".png", ".gif", ".ico", ".svg",[m
+[32m+[m[32m    ".css", ".js",[m
+[32m+[m[32m    ".woff", ".woff2", ".ttf", ".eot",[m
+[32m+[m[32m    ".pdf", ".zip", ".rar", ".exe", ".mp4", ".mp3"[m
+[32m+[m[32m][m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef generate_smart_origins(target_url, listener_domain=None):[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        parsed = urlparse(target_url)[m
+[32m+[m[32m        domain = parsed.netloc[m
+[32m+[m[32m        scheme = parsed.scheme or "https"[m
+[32m+[m
+[32m+[m[32m        origins = {[m
+[32m+[m[32m            f"{scheme}://{domain}.attacker.com",[m
+[32m+[m[32m            f"{scheme}://attacker-{domain}",[m
+[32m+[m[32m            f"{scheme}://attacker{domain}",[m
+[32m+[m[32m            f"{scheme}://{domain}@attacker.com",[m
+[32m+[m[32m            f"{scheme}://attacker.com#{domain}",[m
+[32m+[m[32m            f"{scheme}://{domain}%00.attacker.com",[m
+[32m+[m[32m            "null",[m
+[32m+[m[32m            "https://evil.com"[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        # Add ngrok / listener domain if provided[m
+[32m+[m[32m        if listener_domain:[m
+[32m+[m[32m            origins.add(listener_domain)[m
+[32m+[m
+[32m+[m[32m            # add some trick variants based on ngrok[m
+[32m+[m[32m            parsed_listener = urlparse(listener_domain)[m
+[32m+[m[32m            listener_host = parsed_listener.netloc[m
+[32m+[m
+[32m+[m[32m            origins.add(f"https://{listener_host}.evil.com")[m
+[32m+[m[32m            origins.add(f"https://evil-{listener_host}")[m
+[32m+[m
+[32m+[m[32m        return list(origins)[m
+[32m+[m
+[32m+[m[32m    except Exception:[m
+[32m+[m[32m        origins = ["https://evil.com", "null"][m
+[32m+[m
+[32m+[m[32m        if listener_domain:[m
+[32m+[m[32m            origins.append(listener_domain)[m
+[32m+[m
+[32m+[m[32m        return origins[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef analyze_cors_response(method, origin, headers, credentialed=False):[m
+[32m+[m[32m    findings = [][m
+[32m+[m
+[32m+[m[32m    h = {k.lower(): v for k, v in headers.items()}[m
+[32m+[m
+[32m+[m[32m    acao = h.get("access-control-allow-origin")[m
+[32m+[m[32m    acac = h.get("access-control-allow-credentials", "").lower()[m
+[32m+[m
+[32m+[m[32m    if acao == origin:[m
+[32m+[m[32m        if credentialed and acac == "true":[m
+[32m+[m[32m            findings.append({[m
+[32m+[m[32m                "type": "CORS Origin Reflection with Credentials",[m
+[32m+[m[32m                "severity": "High",[m
+[32m+[m[32m                "details": f"{method} reflects {origin} with credentials"[m
+[32m+[m[32m            })[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            findings.append({[m
+[32m+[m[32m                "type": "CORS Origin Reflection",[m
+[32m+[m[32m                "severity": "Medium",[m
+[32m+[m[32m                "details": f"{method} reflects {origin}"[m
+[32m+[m[32m            })[m
+[32m+[m
+[32m+[m[32m    elif acao == "*" and acac == "true":[m
+[32m+[m[32m        findings.append({[m
+[32m+[m[32m            "type": "Wildcard with Credentials",[m
+[32m+[m[32m            "severity": "Low",[m
+[32m+[m[32m            "details": "ACAO=* with ACAC=true"[m
+[32m+[m[32m        })[m
+[32m+[m
+[32m+[m[32m    elif acao == "null" and origin == "null":[m
+[32m+[m[32m        findings.append({[m
+[32m+[m[32m            "type": "Null Origin Allowed",[m
+[32m+[m[32m            "severity": "Medium",[m
+[32m+[m[32m            "details": "null origin trusted"[m
+[32m+[m[32m        })[m
+[32m+[m
+[32m+[m[32m    return findings[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef build_headers(origin, credentialed=False, cookie=None, auth=None):[m
+[32m+[m[32m    headers = {"Origin": origin}[m
+[32m+[m
+[32m+[m[32m    if credentialed:[m
+[32m+[m[32m        if cookie:[m
+[32m+[m[32m            headers["Cookie"] = cookie[m
+[32m+[m[32m        if auth:[m
+[32m+[m[32m            headers["Authorization"] = auth[m
+[32m+[m
+[32m+[m[32m    return headers[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef scan_cors_single([m
+[32m+[m[32m    url,[m
+[32m+[m[32m    timeout=DEFAULT_TIMEOUT,[m
+[32m+[m[32m    verify=True,[m
+[32m+[m[32m    cookie_header=None,[m
+[32m+[m[32m    auth_header=None,[m
+[32m+[m[32m    with_credentials=False,[m
+[32m+[m[32m    listener_domain=None[m
+[32m+[m[32m):[m
+[32m+[m[32m    findings = [][m
+[32m+[m
+[32m+[m[32m    origins = generate_smart_origins(url, listener_domain)[m
+[32m+[m
+[32m+[m[32m    methods = ["GET", "POST", "HEAD"][m
+[32m+[m
+[32m+[m[32m    session = requests.Session()[m
+[32m+[m
+[32m+[m[32m    modes = [{"name": "no_credentials", "cred": False}][m
+[32m+[m[32m    if with_credentials:[m
+[32m+[m[32m        modes.append({"name": "with_credentials", "cred": True})[m
+[32m+[m
+[32m+[m[32m    for mode in modes:[m
+[32m+[m[32m        for origin in origins:[m
+[32m+[m
+[32m+[m[32m            for method in methods:[m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    headers = build_headers([m
+[32m+[m[32m                        origin,[m
+[32m+[m[32m                        mode["cred"],[m
+[32m+[m[32m                        cookie_header,[m
+[32m+[m[32m                        auth_header[m
+[32m+[m[32m                    )[m
+[32m+[m
+[32m+[m[32m                    r = session.request([m
+[32m+[m[32m                        method,[m
+[32m+[m[32m                        url,[m
+[32m+[m[32m                        headers=headers,[m
+[32m+[m[32m                        timeout=timeout,[m
+[32m+[m[32m                        verify=verify[m
+[32m+[m[32m                    )[m
+[32m+[m
+[32m+[m[32m                    res = analyze_cors_response([m
+[32m+[m[32m                        method,[m
+[32m+[m[32m                        origin,[m
+[32m+[m[32m                        r.headers,[m
+[32m+[m[32m                        mode["cred"][m
+[32m+[m[32m                    )[m
+[32m+[m
+[32m+[m[32m                    for f in res:[m
+[32m+[m[32m                        f["mode"] = mode["name"][m
+[32m+[m
+[32m+[m[32m                    findings.extend(res)[m
+[32m+[m
+[32m+[m[32m                except Exception:[m
+[32m+[m[32m                    continue[m
+[32m+[m
+[32m+[m[32m            # preflight[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                opt = session.options([m
+[32m+[m[32m                    url,[m
+[32m+[m[32m                    headers={[m
+[32m+[m[32m                        "Origin": origin,[m
+[32m+[m[32m                        "Access-Control-Request-Method": "POST"[m
+[32m+[m[32m                    },[m
+[32m+[m[32m                    timeout=timeout,[m
+[32m+[m[32m                    verify=verify[m
+[32m+[m[32m                )[m
+[32m+[m
+[32m+[m[32m                res = analyze_cors_response([m
+[32m+[m[32m                    "OPTIONS",[m
+[32m+[m[32m                    origin,[m
+[32m+[m[32m                    opt.headers,[m
+[32m+[m[32m                    mode["cred"][m
+[32m+[m[32m                )[m
+[32m+[m
+[32m+[m[32m                for f in res:[m
+[32m+[m[32m                    f["mode"] = mode["name"] + "_preflight"[m
+[32m+[m
+[32m+[m[32m                findings.extend(res)[m
+[32m+[m
+[32m+[m[32m            except Exception:[m
+[32m+[m[32m                continue[m
+[32m+[m
+[32m+[m[32m    return findings[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef run_cors_scan_file([m
+[32m+[m[32m    input_file,[m
+[32m+[m[32m    cookie_header=None,[m
+[32m+[m[32m    auth_header=None,[m
+[32m+[m[32m    timeout=DEFAULT_TIMEOUT,[m
+[32m+[m[32m    verify=True,[m
+[32m+[m[32m    with_credentials=False,[m
+[32m+[m[32m    listener_domain=None[m
+[32m+[m[32m):[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        with open(input_file) as f:[m
+[32m+[m[32m            urls = [u.strip() for u in f if u.strip()][m
+[32m+[m
+[32m+[m[32m        for url in urls:[m
+[32m+[m[32m            if any(url.lower().endswith(ext) for ext in EXTENSIONS_TO_SKIP):[m
+[32m+[m[32m                continue[m
+[32m+[m
+[32m+[m[32m            print(f"\n[*] Testing: {url}")[m
+[32m+[m
+[32m+[m[32m            results = scan_cors_single([m
+[32m+[m[32m                url,[m
+[32m+[m[32m                timeout,[m
+[32m+[m[32m                verify,[m
+[32m+[m[32m                cookie_header,[m
+[32m+[m[32m                auth_header,[m
+[32m+[m[32m                with_credentials,[m
+[32m+[m[32m                listener_domain[m
+[32m+[m[32m            )[m
+[32m+[m
+[32m+[m[32m            if results:[m
+[32m+[m[32m                for r in results:[m
+[32m+[m[32m                    print(f"  [!] {r['severity']} | {r['type']} | {r['mode']}")[m
+[32m+[m[32m                    print(f"      {r['details']}")[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                print("  [-] No issues")[m
+[32m+[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        print(f"[!] Error: {e}")[m
+\ No newline at end of file[m
