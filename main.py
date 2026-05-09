@@ -20,6 +20,10 @@ from vuln.xss_scanner import run_xss_scan_single, run_xss_scan_file
 from vuln.ssrf_scanner import run_ssrf_scan_single, run_ssrf_scan_file
 from vuln.cors_scanner import run_cors_scan_file, scan_cors_single
 from vuln.access_control_scanner import run_access_control_test
+from vuln.sqli_scanner import run_sqli_scan_single, run_sqli_scan_file
+from vuln.graphql_scanner import run_graphql_scan_file, scan_graphql_single
+from vuln.csrf_scanner import run_csrf_scan_file, scan_csrf_single
+
 from vuln.race_condition import run_race_condition
 
 
@@ -63,13 +67,21 @@ def start_ngrok(port=80):
 
     try:
         if os.name == "nt":
-            subprocess.Popen(["start", "cmd", "/k", f"ngrok http {port}"], shell=True)
+            subprocess.Popen(
+                ["start", "cmd", "/k", f"ngrok http {port}"],
+                shell=True
+            )
         else:
-            subprocess.Popen(["x-terminal-emulator", "-e", "ngrok", "http", str(port)])
+            subprocess.Popen(
+                ["x-terminal-emulator", "-e", "ngrok", "http", str(port)]
+            )
 
         time.sleep(4)
 
-        data = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=5).json()
+        data = requests.get(
+            "http://127.0.0.1:4040/api/tunnels",
+            timeout=5
+        ).json()
 
         for tunnel in data.get("tunnels", []):
             if "public_url" in tunnel:
@@ -89,8 +101,16 @@ def run_recon(domain, results_dir):
     section("ENUMERATION")
 
     subs = set()
-    subs.update(passive_enumerate_subdomains(domain))
-    subs.update(enumerate_subdomains(domain, 100))
+
+    try:
+        subs.update(passive_enumerate_subdomains(domain))
+    except Exception as e:
+        cprint(f"[!] Passive enum failed: {e}")
+
+    try:
+        subs.update(enumerate_subdomains(domain, 100))
+    except Exception as e:
+        cprint(f"[!] Active enum failed: {e}")
 
     enum_file = f"{results_dir}/{domain}_subs.txt"
 
@@ -98,10 +118,14 @@ def run_recon(domain, results_dir):
         for s in sorted(subs):
             f.write(s + "\n")
 
+    cprint(f"[+] Saved {len(subs)} subdomains")
+
     section("PROBING")
 
     probe_results = probe_subdomains_from_file(enum_file, domain)
+
     if not probe_results:
+        cprint("[!] No live subdomains")
         return None
 
     section("FILTERING")
@@ -116,59 +140,91 @@ def run_recon(domain, results_dir):
     )
 
     if not filtered:
+        cprint("[!] No filtered URLs")
         return None
 
     section("CRAWLING")
 
-    run_crawler(
-        input_file=filtered_file,
-        domain=domain,
-        output_prefix=f"{results_dir}/crawl"
-    )
+    try:
+        run_crawler(
+            input_file=filtered_file,
+            domain=domain,
+            output_prefix=f"{results_dir}/crawl"
+        )
+    except Exception as e:
+        cprint(f"[!] Crawling failed: {e}")
 
     return filtered_file
 
 
 # ============================================================
-# RACE CONDITION (MANUAL TOOL)
+# MANUAL TOOLS
 # ============================================================
 
 def launch_race_terminal():
-    print("\nPaste RAW HTTP request (end with empty line):")
+    section("RACE CONDITION")
+
+    print("Paste RAW HTTP request")
+    print("Finish with an empty line\n")
 
     raw_lines = []
+
     while True:
         line = input()
+
         if line == "":
             break
+
         raw_lines.append(line)
 
     raw_request = "\n".join(raw_lines)
 
-    param = input("Target parameter (e.g. email): ")
+    param = input("Target parameter: ").strip()
     threads = int(input("Threads: ") or "10")
 
-    # Run directly instead of in subprocess to keep program running
-    run_race_condition(raw_request, param, threads)
+    temp_file = tempfile.NamedTemporaryFile(
+        delete=False,
+        mode="w",
+        suffix=".txt"
+    )
 
+    temp_file.write(raw_request)
+    temp_file.close()
 
-# ============================================================
-# MANUAL TOOLS MENU
-# ============================================================
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+from vuln.race_condition import run_race_condition
+raw = open(r'{temp_file.name}').read()
+run_race_condition(raw, '{param}', {threads})
+"""
+    ]
+
+    if os.name == "nt":
+        subprocess.Popen(
+            ["start", "cmd", "/k"] + cmd,
+            shell=True
+        )
+    else:
+        subprocess.Popen(
+            ["x-terminal-emulator", "-e"] + cmd
+        )
+
 
 def run_manual_tools():
     section("MANUAL TOOLS")
 
     print("1) Race Condition Tester")
 
-    choice = input("Select tool: ")
+    choice = input("Select tool: ").strip()
 
     if choice == "1":
         launch_race_terminal()
 
 
 # ============================================================
-# VULN MENU
+# VULNERABILITY MENU
 # ============================================================
 
 def run_vuln_menu(listener_server, filtered_file=None):
@@ -178,40 +234,82 @@ def run_vuln_menu(listener_server, filtered_file=None):
     print("2) SSRF")
     print("3) CORS")
     print("4) Access Control")
-    print("5) Run ALL")
+    print("5) SQL Injection")
+    print("6) GraphQL")
+    print("7) CSRF")
+    print("8) Run ALL")
 
     try:
         vuln_choice = int(input("Select: "))
     except:
-        vuln_choice = 5
+        vuln_choice = 8
 
     print("\n1) From recon results")
     print("2) Single endpoint")
 
-    sub_choice = int(input("Choice: ") or "2")
+    try:
+        sub_choice = int(input("Choice: "))
+    except:
+        sub_choice = 2
+
+    # ============================================================
+    # SINGLE ENDPOINT
+    # ============================================================
 
     if sub_choice == 2:
+
         url = input("Enter URL: ").strip()
 
-        if vuln_choice in (1, 5):
+        # ========================================================
+        # XSS
+        # ========================================================
+
+        if vuln_choice in (1, 8):
+            section("XSS")
             run_xss_scan_single(url, listener_server)
 
-        if vuln_choice in (2, 5):
+        # ========================================================
+        # SSRF
+        # ========================================================
+
+        if vuln_choice in (2, 8):
+            section("SSRF")
             run_ssrf_scan_single(url, listener_server)
 
-        if vuln_choice in (3, 5):
+        # ========================================================
+        # CORS
+        # ========================================================
+
+        if vuln_choice in (3, 8):
+            section("CORS")
+
             findings = scan_cors_single(
                 url,
                 with_credentials=True,
                 listener_domain=listener_server
             )
-            for f in findings:
-                cprint(f"[!] {f['type']}", True)
 
-        if vuln_choice in (4, 5):
-            main_cookie = input("Main session: ")
-            low_cookie = input("Low priv: ")
-            alt_cookie = input("Second user: ")
+            if findings:
+                for f in findings:
+                    cprint(
+                        f"[!] {f['severity']} | {f['type']}",
+                        True
+                    )
+            else:
+                cprint("[-] No issues")
+
+        # ========================================================
+        # ACCESS CONTROL
+        # ========================================================
+
+        if vuln_choice in (4, 8):
+            section("ACCESS CONTROL")
+
+            print("\n[ Sessions ]")
+
+            main_cookie = input("Main session: ").strip()
+            low_cookie = input("Low privilege session: ").strip()
+            alt_cookie = input("Second user session: ").strip()
 
             run_access_control_test(
                 url,
@@ -220,25 +318,114 @@ def run_vuln_menu(listener_server, filtered_file=None):
                 session_alt=alt_cookie
             )
 
+        # ========================================================
+        # SQLI
+        # ========================================================
+
+        if vuln_choice in (5, 8):
+            section("SQL INJECTION")
+            run_sqli_scan_single(url)
+
+        # ========================================================
+        # GRAPHQL
+        # ========================================================
+
+        if vuln_choice in (6, 8):
+            section("GRAPHQL")
+
+            findings = scan_graphql_single(url)
+
+            if findings:
+                for f in findings:
+                    cprint(
+                        f"[!] {f['severity']} | {f['type']}",
+                        True
+                    )
+            else:
+                cprint("[-] No GraphQL endpoints or issues found")
+
+        # ========================================================
+        # CSRF
+        # ========================================================
+
+        if vuln_choice in (7, 8):
+            section("CSRF")
+
+            cookie = input("Cookie (optional): ").strip() or None
+
+            findings = scan_csrf_single(url, cookie_header=cookie)
+
+            if findings:
+                for f in findings:
+                    cprint(
+                        f"[!] {f['severity']} | {f['type']}",
+                        True
+                    )
+            else:
+                cprint("[-] No CSRF issues found")
+
         return
 
+    # ============================================================
     # FILE MODE
-    if not filtered_file:
-        cprint("[!] No recon data")
+    # ============================================================
+
+    if not filtered_file or not os.path.exists(filtered_file):
+        cprint("[!] Recon results missing")
         return
 
-    if vuln_choice in (1, 5):
+    # ============================================================
+    # XSS
+    # ============================================================
+
+    if vuln_choice in (1, 8):
+        section("XSS")
         run_xss_scan_file(filtered_file, listener_server)
 
-    if vuln_choice in (2, 5):
+    # ============================================================
+    # SSRF
+    # ============================================================
+
+    if vuln_choice in (2, 8):
+        section("SSRF")
         run_ssrf_scan_file(filtered_file, listener_server)
 
-    if vuln_choice in (3, 5):
+    # ============================================================
+    # CORS
+    # ============================================================
+
+    if vuln_choice in (3, 8):
+        section("CORS")
+
         run_cors_scan_file(
             filtered_file,
             with_credentials=True,
             listener_domain=listener_server
         )
+
+    # ============================================================
+    # SQLI
+    # ============================================================
+
+    if vuln_choice in (5, 8):
+        section("SQL INJECTION")
+        run_sqli_scan_file(filtered_file)
+
+    # ============================================================
+    # GRAPHQL
+    # ============================================================
+
+    if vuln_choice in (6, 8):
+        section("GRAPHQL")
+        run_graphql_scan_file(filtered_file)
+
+    # ============================================================
+    # CSRF
+    # ============================================================
+
+    if vuln_choice in (7, 8):
+        section("CSRF")
+        run_csrf_scan_file(filtered_file)
 
 
 # ============================================================
@@ -249,51 +436,78 @@ def main():
     banner()
 
     listener_server = start_ngrok()
+
     cprint(f"[+] Listener: {listener_server}", True)
 
-    while True:
-        print("\n1) Full Recon + Vulnerability Scan")
-        print("2) Recon Only")
-        print("3) Vulnerability Scan Only")
-        print("4) Scan Single Endpoint")
-        print("5) Manual Tools")
-        print("6) Exit")
+    print("\n1) Full Recon + Vulnerability Scan")
+    print("2) Recon Only")
+    print("3) Vulnerability Scan Only")
+    print("4) Scan Single Endpoint")
+    print("5) Manual Tools")
 
-        try:
-            mode = int(input("Choice: ") or "1")
-        except ValueError:
-            mode = 1
+    try:
+        mode = int(input("Choice: "))
+    except:
+        mode = 1
 
-        if mode == 6:
-            break
+    # ============================================================
+    # MANUAL TOOLS
+    # ============================================================
 
-        if mode == 5:
-            run_manual_tools()
-            continue
+    if mode == 5:
+        run_manual_tools()
+        return
 
-        if mode == 4:
-            run_vuln_menu(listener_server)
-            continue
+    # ============================================================
+    # SINGLE ENDPOINT
+    # ============================================================
 
-        domain = input("Enter domain: ").strip()
+    if mode == 4:
+        run_vuln_menu(listener_server)
+        return
 
-        results_dir = f"Results/{domain}_results"
-        os.makedirs(results_dir, exist_ok=True)
+    # ============================================================
+    # DOMAIN INPUT
+    # ============================================================
 
-        filtered_file = None
+    domain = input("\nEnter domain: ").strip()
 
-        if mode in (1, 2):
-            filtered_file = run_recon(domain, results_dir)
+    results_dir = f"Results/{domain}_results"
 
-        if mode == 2:
-            section("DONE")
-            continue
+    os.makedirs(results_dir, exist_ok=True)
 
-        run_vuln_menu(listener_server, filtered_file)
+    filtered_file = None
 
+    # ============================================================
+    # RECON
+    # ============================================================
+
+    if mode in (1, 2):
+        filtered_file = run_recon(domain, results_dir)
+
+    # ============================================================
+    # RECON ONLY
+    # ============================================================
+
+    if mode == 2:
         section("DONE")
-        cprint(f"Results: {results_dir}", True)
-        cprint(f"Listener: {listener_server}", True)
+        cprint(f"Results saved in {results_dir}", True)
+        return
+
+    # ============================================================
+    # VULN SCAN
+    # ============================================================
+
+    run_vuln_menu(listener_server, filtered_file)
+
+    # ============================================================
+    # DONE
+    # ============================================================
+
+    section("DONE")
+
+    cprint(f"Results directory: {results_dir}", True)
+    cprint(f"Listener server: {listener_server}", True)
 
 
 if __name__ == "__main__":
